@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Flask, g, jsonify, request
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash
 
 import service
 
@@ -22,6 +22,7 @@ app.config["JSON_SORT_KEYS"] = False
 
 
 def db():
+    """Return one SQLite connection for the current Flask request."""
     if "db" not in g:
         g.db = service.get_connection(DB_PATH)
     return g.db
@@ -29,18 +30,35 @@ def db():
 
 @app.teardown_appcontext
 def close_db(_error=None):
+    """Close the request's database connection."""
     connection = g.pop("db", None)
     if connection is not None:
         connection.close()
 
 
 def migrate_auth():
+    """
+    Ensure the existing utilities database supports authentication.
+
+    Passwords are not created or hard-coded here. The login route retrieves
+    each user's phone number and password hash from the users table.
+    """
     conn = service.get_connection(DB_PATH)
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(users)").fetchall()
+    }
+
     if "password_hash" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
     if "is_active" not in columns:
-        conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN "
+            "is_active INTEGER NOT NULL DEFAULT 1"
+        )
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -53,130 +71,261 @@ def migrate_auth():
         )
         """
     )
-    demo_passwords = {
-        "+254700000003": "Billing123!",
-        "+254700000005": "Admin123!",
-    }
-    for phone, password in demo_passwords.items():
-        conn.execute(
-            "UPDATE users SET password_hash=COALESCE(password_hash, ?) WHERE phone=?",
-            (generate_password_hash(password, method="pbkdf2:sha256:600000"), phone),
-        )
+
     conn.commit()
     conn.close()
 
 
 def body_json():
+    """Read and validate a JSON request body."""
     data = request.get_json(silent=True)
-    if data is None:
-        raise service.ServiceError("Request body must contain valid JSON.")
+
+    if data is None or not isinstance(data, dict):
+        raise service.ServiceError(
+            "Request body must contain a valid JSON object."
+        )
+
     return data
 
 
 def bearer_token():
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
-        raise service.ServiceError("Missing Authorization: Bearer <token> header.", 401)
-    return header[7:].strip()
+    """Extract a bearer token from the Authorization request header."""
+    header = request.headers.get("Authorization", "").strip()
+    prefix = "Bearer "
+
+    if not header.startswith(prefix):
+        raise service.ServiceError(
+            "Missing Authorization: Bearer <token> header.",
+            401,
+        )
+
+    token = header[len(prefix):].strip()
+
+    if not token:
+        raise service.ServiceError("The bearer token is empty.", 401)
+
+    return token
 
 
 def authenticated_user():
+    """Retrieve the logged-in user belonging to a valid database session."""
     token = bearer_token()
+
     row = db().execute(
         """
-        SELECT u.*, s.token, s.expires_at
-        FROM auth_sessions s JOIN users u ON u.id=s.user_id
-        WHERE s.token=? AND s.revoked_at IS NULL AND s.expires_at > datetime('now')
+        SELECT
+            u.id,
+            u.name,
+            u.phone,
+            u.role,
+            u.is_active,
+            s.token,
+            s.expires_at
+        FROM auth_sessions AS s
+        JOIN users AS u ON u.id = s.user_id
+        WHERE s.token = ?
+          AND s.revoked_at IS NULL
+          AND s.expires_at > datetime('now')
         """,
         (token,),
     ).fetchone()
-    if not row:
-        raise service.ServiceError("Invalid or expired login token.", 401)
+
+    if row is None:
+        raise service.ServiceError(
+            "Invalid or expired login token.",
+            401,
+        )
+
     user = dict(row)
-    if not user.get("is_active", 1):
-        raise service.ServiceError("This user account is disabled.", 403)
+
+    if not bool(user["is_active"]):
+        raise service.ServiceError(
+            "This user account is disabled.",
+            403,
+        )
+
     return user
 
 
 def roles_allowed(*roles):
+    """Restrict a Flask route to one or more database user roles."""
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             user = authenticated_user()
+
             if user["role"] not in roles:
                 raise service.ServiceError(
-                    f"Access denied. Required role: {', '.join(roles)}. Current role: {user['role']}.",
+                    "Access denied. Required role: "
+                    f"{', '.join(roles)}. Current role: {user['role']}.",
                     403,
                 )
+
             g.current_user = user
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 @app.errorhandler(service.ServiceError)
 def handle_service_error(error):
     payload = {"error": error.message}
+
     if error.details is not None:
         payload["details"] = error.details
+
     return jsonify(payload), error.status_code
 
 
 @app.errorhandler(sqlite3.IntegrityError)
 def handle_integrity_error(error):
-    return jsonify({"error": "Database constraint failed.", "details": str(error)}), 409
+    return jsonify(
+        {
+            "error": "Database constraint failed.",
+            "details": str(error),
+        }
+    ), 409
 
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):
     app.logger.exception("Unhandled error")
-    return jsonify({"error": "Internal server error.", "details": str(error) if app.debug else None}), 500
+
+    return jsonify(
+        {
+            "error": "Internal server error.",
+            "details": str(error) if app.debug else None,
+        }
+    ), 500
 
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "service": "Maji Power Billing API"})
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "Maji Power Billing API",
+            "database": os.path.basename(DB_PATH),
+        }
+    )
 
 
 @app.post("/api/auth/login")
 def login():
+    """
+    Authenticate a user using credentials stored in utilities.db.
+
+    The phone number is used to retrieve the user record. The submitted
+    password is compared with the password_hash stored in that record.
+    """
     data = body_json()
+
     phone = str(data.get("phone", "")).strip()
     password = str(data.get("password", ""))
+
     if not phone or not password:
-        raise service.ServiceError("phone and password are required.")
-    user = db().execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
+        raise service.ServiceError(
+            "Phone and password are required.",
+            400,
+        )
 
-    print(f"User: {user}")  
-    if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
-        raise service.ServiceError("Invalid phone number or password.", 401)
+    user = db().execute(
+        """
+        SELECT
+            id,
+            name,
+            phone,
+            role,
+            password_hash,
+            is_active
+        FROM users
+        WHERE phone = ?
+        """,
+        (phone,),
+    ).fetchone()
 
-    
-    if not check_password_hash(user["password_hash"], password):
-        raise service.ServiceError("wrong password.", 401)
-    
-    if not user["is_active"]:
-        raise service.ServiceError("This user account is disabled.", 403)
+    # Use one generic response so the API does not reveal whether a phone
+    # number exists in the database.
+    if (
+        user is None
+        or not user["password_hash"]
+        or not check_password_hash(user["password_hash"], password)
+    ):
+        raise service.ServiceError(
+            "Invalid phone number or password.",
+            401,
+        )
+
+    if not bool(user["is_active"]):
+        raise service.ServiceError(
+            "This user account is disabled.",
+            403,
+        )
+
     token = secrets.token_urlsafe(32)
-    expires = (datetime.now() + timedelta(hours=TOKEN_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
-    db().execute("INSERT INTO auth_sessions (user_id,token,expires_at) VALUES (?,?,?)", (user["id"], token, expires))
-    service.log_action(db(), user["id"], "login", f"user:{user['id']}", "Successful login")
+    expires_at = (
+        datetime.now() + timedelta(hours=TOKEN_HOURS)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+
+    db().execute(
+        """
+        INSERT INTO auth_sessions (user_id, token, expires_at)
+        VALUES (?, ?, ?)
+        """,
+        (user["id"], token, expires_at),
+    )
+
+    service.log_action(
+        db(),
+        user["id"],
+        "login",
+        f"user:{user['id']}",
+        "Successful database-authenticated login",
+    )
+
     db().commit()
-    return jsonify({
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_at": expires,
-      
-        "user": {"id": user["id"], "name": user["name"], "phone": user["phone"], "role": user["role"]},
-    })
+
+    return jsonify(
+        {
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_at": expires_at,
+            "user": {
+                "id": user["id"],
+                "name": user["name"],
+                "phone": user["phone"],
+                "role": user["role"],
+            },
+        }
+    )
 
 
 @app.post("/api/auth/logout")
 @roles_allowed("customer", "meter_reader", "billing_officer", "admin")
 def logout():
-    db().execute("UPDATE auth_sessions SET revoked_at=datetime('now') WHERE token=?", (bearer_token(),))
-    service.log_action(db(), g.current_user["id"], "logout", f"user:{g.current_user['id']}")
+    token = bearer_token()
+
+    db().execute(
+        """
+        UPDATE auth_sessions
+        SET revoked_at = datetime('now')
+        WHERE token = ?
+        """,
+        (token,),
+    )
+
+    service.log_action(
+        db(),
+        g.current_user["id"],
+        "logout",
+        f"user:{g.current_user['id']}",
+        "Session token revoked",
+    )
+
     db().commit()
+
     return jsonify({"message": "Logged out successfully."})
 
 
@@ -184,7 +333,15 @@ def logout():
 @roles_allowed("customer", "meter_reader", "billing_officer", "admin")
 def me():
     user = g.current_user
-    return jsonify({"id": user["id"], "name": user["name"], "phone": user["phone"], "role": user["role"]})
+
+    return jsonify(
+        {
+            "id": user["id"],
+            "name": user["name"],
+            "phone": user["phone"],
+            "role": user["role"],
+        }
+    )
 
 
 # Billing & Collections Officer dashboard and account review
@@ -197,7 +354,13 @@ def officer_dashboard():
 @app.get("/api/officer/accounts")
 @roles_allowed("billing_officer", "admin")
 def accounts():
-    return jsonify(service.list_accounts(db(), request.args.get("service_type"), request.args.get("search")))
+    return jsonify(
+        service.list_accounts(
+            db(),
+            request.args.get("service_type"),
+            request.args.get("search"),
+        )
+    )
 
 
 # Billing run: preview exceptions first, then generate one or many bills
@@ -205,21 +368,45 @@ def accounts():
 @roles_allowed("billing_officer", "admin")
 def preview_one():
     data = body_json()
-    return jsonify(service.bill_preview(db(), int(data["account_id"]), data["billing_period"], data["due_date"]))
+
+    return jsonify(
+        service.bill_preview(
+            db(),
+            int(data["account_id"]),
+            data["billing_period"],
+            data["due_date"],
+        )
+    )
 
 
 @app.post("/api/officer/billing/preview-bulk")
 @roles_allowed("billing_officer", "admin")
 def preview_bulk():
     data = body_json()
-    return jsonify(service.bulk_preview(db(), data["billing_period"], data["due_date"], data.get("service_type")))
+
+    return jsonify(
+        service.bulk_preview(
+            db(),
+            data["billing_period"],
+            data["due_date"],
+            data.get("service_type"),
+        )
+    )
 
 
 @app.post("/api/officer/bills")
 @roles_allowed("billing_officer", "admin")
 def create_bill():
     data = body_json()
-    result = service.generate_bill(db(), g.current_user["id"], int(data["account_id"]), data["billing_period"], data["due_date"])
+
+    result = service.generate_bill(
+        db(),
+        g.current_user["id"],
+        int(data["account_id"]),
+        data["billing_period"],
+        data["due_date"],
+    )
+
     return jsonify(result), 201
 
 
@@ -227,14 +414,29 @@ def create_bill():
 @roles_allowed("billing_officer", "admin")
 def create_bulk_bills():
     data = body_json()
-    result = service.generate_bulk(db(), g.current_user["id"], data["billing_period"], data["due_date"], data.get("service_type"))
+
+    result = service.generate_bulk(
+        db(),
+        g.current_user["id"],
+        data["billing_period"],
+        data["due_date"],
+        data.get("service_type"),
+    )
+
     return jsonify(result), 201
 
 
 @app.get("/api/officer/bills")
 @roles_allowed("billing_officer", "admin")
 def bills():
-    return jsonify(service.list_bills(db(), request.args.get("status"), request.args.get("billing_period"), request.args.get("account")))
+    return jsonify(
+        service.list_bills(
+            db(),
+            request.args.get("status"),
+            request.args.get("billing_period"),
+            request.args.get("account"),
+        )
+    )
 
 
 @app.get("/api/officer/bills/<int:bill_id>")
@@ -247,21 +449,43 @@ def bill_details(bill_id):
 @roles_allowed("billing_officer", "admin")
 def overdue():
     data = request.get_json(silent=True) or {}
-    return jsonify(service.process_overdue(db(), g.current_user["id"], bool(data.get("apply_penalty", True))))
+
+    return jsonify(
+        service.process_overdue(
+            db(),
+            g.current_user["id"],
+            bool(data.get("apply_penalty", True)),
+        )
+    )
 
 
 @app.post("/api/officer/notifications")
 @roles_allowed("billing_officer", "admin")
 def notifications():
     data = request.get_json(silent=True) or {}
-    return jsonify(service.queue_bill_notifications(db(), g.current_user["id"], data.get("bill_ids")))
+
+    return jsonify(
+        service.queue_bill_notifications(
+            db(),
+            g.current_user["id"],
+            data.get("bill_ids"),
+        )
+    )
 
 
 # Payments and reconciliation
 @app.get("/api/officer/payments")
 @roles_allowed("billing_officer", "admin")
 def payments():
-    return jsonify(service.list_payments(db(), request.args.get("status"), request.args.get("method"), request.args.get("account"), request.args.get("billing_period")))
+    return jsonify(
+        service.list_payments(
+            db(),
+            request.args.get("status"),
+            request.args.get("method"),
+            request.args.get("account"),
+            request.args.get("billing_period"),
+        )
+    )
 
 
 @app.get("/api/officer/payments/<int:payment_id>")
@@ -274,7 +498,15 @@ def payment_details(payment_id):
 @roles_allowed("customer", "billing_officer", "admin")
 def submit_payment():
     data = body_json()
-    result = service.create_payment(db(), int(data["bill_id"]), float(data["amount"]), data["payment_method"], data.get("provider_reference"))
+
+    result = service.create_payment(
+        db(),
+        int(data["bill_id"]),
+        float(data["amount"]),
+        data["payment_method"],
+        data.get("provider_reference"),
+    )
+
     return jsonify(result), 201
 
 
@@ -282,21 +514,44 @@ def submit_payment():
 @roles_allowed("billing_officer", "admin")
 def reconcile_payment(payment_id):
     data = body_json()
-    return jsonify(service.update_payment_status(db(), g.current_user["id"], payment_id, data["status"], data.get("provider_reference")))
+
+    return jsonify(
+        service.update_payment_status(
+            db(),
+            g.current_user["id"],
+            payment_id,
+            data["status"],
+            data.get("provider_reference"),
+        )
+    )
 
 
 @app.patch("/api/admin/payments/<int:payment_id>/link")
 @roles_allowed("admin")
 def link_payment(payment_id):
     data = body_json()
-    return jsonify(service.manual_link_payment(db(), g.current_user["id"], payment_id, int(data["bill_id"])))
+
+    return jsonify(
+        service.manual_link_payment(
+            db(),
+            g.current_user["id"],
+            payment_id,
+            int(data["bill_id"]),
+        )
+    )
 
 
 # Officer reports and traceability
 @app.get("/api/officer/reports/daily-collections")
 @roles_allowed("billing_officer", "admin")
 def daily_collections():
-    return jsonify(service.report_daily_collections(db(), request.args.get("date_from"), request.args.get("date_to")))
+    return jsonify(
+        service.report_daily_collections(
+            db(),
+            request.args.get("date_from"),
+            request.args.get("date_to"),
+        )
+    )
 
 
 @app.get("/api/officer/reports/overdue")
@@ -314,9 +569,18 @@ def revenue_report():
 @app.get("/api/officer/audit-log")
 @roles_allowed("billing_officer", "admin")
 def audit_log():
-    return jsonify(service.audit_logs(db(), int(request.args.get("limit", 100))))
+    return jsonify(
+        service.audit_logs(
+            db(),
+            int(request.args.get("limit", 100)),
+        )
+    )
 
 
 if __name__ == "__main__":
     migrate_auth()
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=True)
+    app.run(
+        host="127.0.0.1",
+        port=int(os.environ.get("PORT", "5000")),
+        debug=True,
+    )
