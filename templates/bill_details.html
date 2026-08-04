@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="bill-detail-root" data-bill-id="{{ bill_id }}">
+    <section class="panel">
+        <div class="panel-header">
+            <div><p class="eyebrow">Invoice details</p><h2 id="bill-heading">Bill #{{ bill_id }}</h2><p id="bill-customer" class="muted">Loading…</p></div>
+            <span id="bill-detail-status" class="badge">—</span>
+        </div>
+        <div class="detail-grid">
+            <div><span>Account</span><strong id="detail-account">—</strong></div>
+            <div><span>Billing period</span><strong id="detail-period">—</strong></div>
+            <div><span>Due date</span><strong id="detail-due-date">—</strong></div>
+            <div><span>Consumption</span><strong id="detail-consumption">—</strong></div>
+        </div>
+    </section>
+
+    <section class="panel-grid">
+        <article class="panel">
+            <div class="panel-header"><div><p class="eyebrow">Charge breakdown</p><h2>Amount calculation</h2></div></div>
+            <dl class="breakdown-list">
+                <div><dt>Previous balance</dt><dd id="charge-previous">—</dd></div>
+                <div><dt>Consumption charge</dt><dd id="charge-consumption">—</dd></div>
+                <div><dt>Fixed charge</dt><dd id="charge-fixed">—</dd></div>
+                <div><dt>Tax</dt><dd id="charge-tax">—</dd></div>
+                <div><dt>Penalty</dt><dd id="charge-penalty">—</dd></div>
+                <div class="breakdown-total"><dt>Total due</dt><dd id="charge-total">—</dd></div>
+                <div><dt>Confirmed payments</dt><dd id="charge-paid">—</dd></div>
+                <div class="breakdown-balance"><dt>Remaining balance</dt><dd id="charge-balance">—</dd></div>
+            </dl>
+        </article>
+
+        <article class="panel">
+            <div class="panel-header"><div><p class="eyebrow">Transactions</p><h2>Payments for this bill</h2></div></div>
+            <div class="table-wrap">
+                <table><thead><tr><th>ID</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead><tbody id="bill-payments"><tr><td colspan="4" class="empty-cell">Loading…</td></tr></tbody></table>
+            </div>
+        </article>
+    </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/bill_details.js') }}"></script>{% endblock %}

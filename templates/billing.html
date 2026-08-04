@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+    <div class="panel-header">
+        <div><p class="eyebrow">Exceptions first</p><h2>Prepare billing run</h2><p class="muted">Preview all accounts before generating bills.</p></div>
+    </div>
+    <form id="billing-form" class="filter-bar billing-controls">
+        <label class="field compact"><span>Billing period</span><input id="billing-period" type="month" required></label>
+        <label class="field compact"><span>Due date</span><input id="due-date" type="date" required></label>
+        <label class="field compact"><span>Service</span><select id="billing-service"><option value="">All services</option><option value="water">Water</option><option value="electricity">Electricity</option></select></label>
+        <button class="button button-primary" id="preview-button" type="submit">Preview bills</button>
+    </form>
+</section>
+
+<section id="preview-section" class="hidden">
+    <div class="stats-grid compact-stats">
+        <article class="stat-card"><span>Accounts checked</span><strong id="preview-total">0</strong></article>
+        <article class="stat-card"><span>Ready to generate</span><strong id="preview-ready">0</strong></article>
+        <article class="stat-card"><span>Exceptions / warnings</span><strong id="preview-exceptions">0</strong></article>
+    </div>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div><p class="eyebrow">Review</p><h2>Billing preview</h2></div>
+            <button class="button button-success" id="generate-button" type="button">Generate all valid bills</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Account</th><th>Customer</th><th>Service</th><th>Consumption</th><th>Charges</th><th>Total due</th><th>Result</th></tr></thead>
+                <tbody id="billing-preview-table"></tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+<section class="panel danger-panel">
+    <div class="panel-header">
+        <div><p class="eyebrow">Collections maintenance</p><h2>Overdue processing</h2><p class="muted">Mark past-due issued bills as overdue and apply configured penalties.</p></div>
+        <button class="button button-danger" id="process-overdue-button" type="button">Process overdue bills</button>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/billing.js') }}"></script>{% endblock %}

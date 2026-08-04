@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in | Maji Power</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+<main class="login-layout">
+    <section class="login-hero">
+        <div class="brand brand-light">
+            <div class="brand-mark">MP</div>
+            <div>
+                <strong>Maji Power</strong>
+                <span>Utility Billing Platform</span>
+            </div>
+        </div>
+        <div class="hero-copy">
+            <p class="eyebrow light">Billing & Collections Officer Portal</p>
+            <h1>Manage bills, payments and overdue accounts in one place.</h1>
+            <p>Sign in to review readings, generate bills, reconcile payments and monitor collections.</p>
+        </div>
+    </section>
+
+    <section class="login-panel">
+        <form id="login-form" class="login-card">
+            <div>
+                <p class="eyebrow">Secure access</p>
+                <h2>Welcome back</h2>
+                <p class="muted">Use your Maji Power phone number and password.</p>
+            </div>
+
+            <div id="login-alert" class="alert hidden" role="alert"></div>
+
+            <label class="field">
+                <span>Phone number</span>
+                <input id="phone" name="phone" type="tel" value="+254700000003" autocomplete="username" required>
+            </label>
+
+            <label class="field">
+                <span>Password</span>
+                <input id="password" name="password" type="password" value="Billing123!" autocomplete="current-password" required>
+            </label>
+
+            <button id="login-button" class="button button-primary button-full" type="submit">Sign in</button>
+
+            <div class="demo-note">
+                <strong>Demo Billing Officer</strong>
+                <span>+254700000003 / Billing123!</span>
+            </div>
+        </form>
+    </section>
+</main>
+<script src="{{ url_for('static', filename='js/login.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} | Maji Power</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-page="{{ active_page }}">
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="brand-mark">MP</div>
+            <div>
+                <strong>Maji Power</strong>
+                <span>Billing & Collections</span>
+            </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Primary navigation">
+            <a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="/dashboard">Dashboard</a>
+            <a class="nav-link {% if active_page == 'accounts' %}active{% endif %}" href="/accounts">Accounts</a>
+            <a class="nav-link {% if active_page == 'billing' %}active{% endif %}" href="/billing">Billing Run</a>
+            <a class="nav-link {% if active_page == 'bills' %}active{% endif %}" href="/bills">Bills</a>
+            <a class="nav-link {% if active_page == 'payments' %}active{% endif %}" href="/payments">Payments</a>
+            <a class="nav-link {% if active_page == 'reports' %}active{% endif %}" href="/reports">Reports</a>
+            <a class="nav-link {% if active_page == 'audit' %}active{% endif %}" href="/audit-log">Audit Log</a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span class="small-label">Signed in as</span>
+            <strong id="sidebar-user">{{ current_user.name }}</strong>
+            <span id="sidebar-role" class="role-label">{{ current_user.role|replace('_', ' ')|title }}</span>
+        </div>
+    </aside>
+
+    <div class="main-area">
+        <header class="topbar">
+            <button class="menu-button" id="menu-button" type="button" aria-label="Open navigation">☰</button>
+            <div>
+                <p class="eyebrow">Maji Power Staff Portal</p>
+                <h1>{{ page_title }}</h1>
+            </div>
+            <div class="topbar-actions">
+                <span class="user-chip" id="current-user-name">{{ current_user.name }}</span>
+                <button class="button button-secondary" id="logout-button" type="button">Log out</button>
+            </div>
+        </header>
+
+        <main class="content">
+            <div id="global-alert" class="alert hidden" role="alert"></div>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

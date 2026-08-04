@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Flask, g, jsonify, request
+from flask import Flask, g, jsonify, make_response, redirect, render_template, request, url_for
 from werkzeug.security import check_password_hash
 
 import service
@@ -89,22 +89,23 @@ def body_json():
 
 
 def bearer_token():
-    """Extract a bearer token from the Authorization request header."""
+    """Read a login token from a bearer header or the browser cookie."""
     header = request.headers.get("Authorization", "").strip()
     prefix = "Bearer "
 
-    if not header.startswith(prefix):
-        raise service.ServiceError(
-            "Missing Authorization: Bearer <token> header.",
-            401,
-        )
+    if header.startswith(prefix):
+        token = header[len(prefix):].strip()
+        if token:
+            return token
 
-    token = header[len(prefix):].strip()
+    token = request.cookies.get("maji_token", "").strip()
+    if token:
+        return token
 
-    if not token:
-        raise service.ServiceError("The bearer token is empty.", 401)
-
-    return token
+    raise service.ServiceError(
+        "You must log in before accessing this resource.",
+        401,
+    )
 
 
 def authenticated_user():
@@ -201,6 +202,87 @@ def handle_unexpected_error(error):
     ), 500
 
 
+def current_page_user():
+    """Return the current officer/admin for an HTML page, or None."""
+    try:
+        user = authenticated_user()
+    except service.ServiceError:
+        return None
+
+    if user["role"] not in {"billing_officer", "admin"}:
+        return None
+
+    g.current_user = user
+    return user
+
+
+def render_officer_page(template_name: str, **context):
+    """Render a protected Billing Officer page."""
+    user = current_page_user()
+    if user is None:
+        return redirect(url_for("login_page"))
+    return render_template(template_name, current_user=user, **context)
+
+
+@app.get("/")
+def home_page():
+    if current_page_user() is not None:
+        return redirect(url_for("dashboard_page"))
+    return redirect(url_for("login_page"))
+
+
+@app.get("/login")
+def login_page():
+    if current_page_user() is not None:
+        return redirect(url_for("dashboard_page"))
+    return render_template("login.html")
+
+
+@app.get("/dashboard")
+def dashboard_page():
+    return render_officer_page("dashboard.html", page_title="Dashboard", active_page="dashboard")
+
+
+@app.get("/accounts")
+def accounts_page():
+    return render_officer_page("accounts.html", page_title="Accounts", active_page="accounts")
+
+
+@app.get("/billing")
+def billing_page():
+    return render_officer_page("billing.html", page_title="Billing Run", active_page="billing")
+
+
+@app.get("/bills")
+def bills_page():
+    return render_officer_page("bills.html", page_title="Bills", active_page="bills")
+
+
+@app.get("/bills/<int:bill_id>")
+def bill_page(bill_id):
+    return render_officer_page(
+        "bill_details.html",
+        page_title=f"Bill #{bill_id}",
+        active_page="bills",
+        bill_id=bill_id,
+    )
+
+
+@app.get("/payments")
+def payments_page():
+    return render_officer_page("payments.html", page_title="Payments", active_page="payments")
+
+
+@app.get("/reports")
+def reports_page():
+    return render_officer_page("reports.html", page_title="Reports", active_page="reports")
+
+
+@app.get("/audit-log")
+def audit_page():
+    return render_officer_page("audit_log.html", page_title="Audit Log", active_page="audit")
+
+
 @app.get("/health")
 def health():
     return jsonify(
@@ -287,19 +369,30 @@ def login():
 
     db().commit()
 
-    return jsonify(
-        {
-            "access_token": token,
-            "token_type": "Bearer",
-            "expires_at": expires_at,
-            "user": {
-                "id": user["id"],
-                "name": user["name"],
-                "phone": user["phone"],
-                "role": user["role"],
-            },
-        }
+    response = make_response(
+        jsonify(
+            {
+                "access_token": token,
+                "token_type": "Bearer",
+                "expires_at": expires_at,
+                "user": {
+                    "id": user["id"],
+                    "name": user["name"],
+                    "phone": user["phone"],
+                    "role": user["role"],
+                },
+            }
+        )
     )
+    response.set_cookie(
+        "maji_token",
+        token,
+        max_age=TOKEN_HOURS * 60 * 60,
+        httponly=True,
+        samesite="Lax",
+        secure=False,
+    )
+    return response
 
 
 @app.post("/api/auth/logout")
@@ -326,7 +419,9 @@ def logout():
 
     db().commit()
 
-    return jsonify({"message": "Logged out successfully."})
+    response = make_response(jsonify({"message": "Logged out successfully."}))
+    response.delete_cookie("maji_token")
+    return response
 
 
 @app.get("/api/auth/me")

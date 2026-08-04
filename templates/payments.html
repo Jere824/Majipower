@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+    <div class="panel-header">
+        <div><p class="eyebrow">Reconciliation</p><h2>Payments</h2></div>
+        <span id="payment-count" class="count-pill">0 payments</span>
+    </div>
+    <form id="payment-filter" class="filter-bar">
+        <label class="field compact"><span>Status</span><select id="payment-status"><option value="">All statuses</option><option value="initiated">Initiated</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+        <label class="field compact"><span>Method</span><select id="payment-method"><option value="">All methods</option><option value="mobile_money">Mobile money</option><option value="card">Card</option><option value="bank">Bank</option></select></label>
+        <label class="field compact"><span>Account</span><input id="payment-account" type="search" placeholder="Account or meter"></label>
+        <label class="field compact"><span>Period</span><input id="payment-period" type="month"></label>
+        <button class="button button-primary" type="submit">Filter</button>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>ID</th><th>Account</th><th>Customer</th><th>Method</th><th>Amount</th><th>Reference</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="payments-table"><tr><td colspan="9" class="empty-cell">Loading…</td></tr></tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/payments.js') }}"></script>{% endblock %}

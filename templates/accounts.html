@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+    <div class="panel-header">
+        <div><p class="eyebrow">Customer utilities</p><h2>Utility accounts</h2></div>
+        <span id="account-count" class="count-pill">0 accounts</span>
+    </div>
+    <form id="account-filter" class="filter-bar">
+        <label class="field compact"><span>Search</span><input id="account-search" type="search" placeholder="Account, meter or customer"></label>
+        <label class="field compact"><span>Service type</span><select id="service-type"><option value="">All services</option><option value="water">Water</option><option value="electricity">Electricity</option></select></label>
+        <button class="button button-primary" type="submit">Search</button>
+        <button class="button button-secondary" id="clear-account-filter" type="button">Clear</button>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Account</th><th>Customer</th><th>Meter</th><th>Service</th><th>Address</th><th>Latest reading</th></tr></thead>
+            <tbody id="accounts-table"><tr><td colspan="6" class="empty-cell">Loading…</td></tr></tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/accounts.js') }}"></script>{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+    <div class="panel-header">
+        <div><p class="eyebrow">Invoices</p><h2>Bill management</h2></div>
+        <span id="bill-count" class="count-pill">0 bills</span>
+    </div>
+    <form id="bill-filter" class="filter-bar">
+        <label class="field compact"><span>Status</span><select id="bill-status"><option value="">All statuses</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="partially_paid">Partially paid</option><option value="paid">Paid</option><option value="overdue">Overdue</option></select></label>
+        <label class="field compact"><span>Billing period</span><input id="bill-period" type="month"></label>
+        <label class="field compact"><span>Account</span><input id="bill-account" type="search" placeholder="Account or meter"></label>
+        <button class="button button-primary" type="submit">Filter</button>
+        <button class="button button-secondary" id="clear-bill-filter" type="button">Clear</button>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Bill</th><th>Account</th><th>Customer</th><th>Period</th><th>Total due</th><th>Balance</th><th>Status</th><th>Due date</th><th></th></tr></thead>
+            <tbody id="bills-table"><tr><td colspan="9" class="empty-cell">Loading…</td></tr></tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/bills.js') }}"></script>{% endblock %}
